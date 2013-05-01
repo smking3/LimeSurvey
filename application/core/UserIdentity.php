@@ -26,7 +26,12 @@ class UserIdentity extends CUserIdentity
     * @return bool
     */
     public function authenticate($sOneTimePassword='')
-    {    
+    {   
+        if (Yii::app()->getConfig('enableLdapAuth') == true) 
+        {
+            $this->authenticateLdap($this->username, $this->password);
+        }
+ 
         if (Yii::app()->getConfig("auth_webserver")==false || $this->username != "")         
         {
             $user = User::model()->findByAttributes(array('users_name' => $this->username));
@@ -156,6 +161,57 @@ class UserIdentity extends CUserIdentity
         }
         return !$this->errorCode;
     }
+    
+private function authenticateLdap($username, $password) {
+    
+        Yii::app()->loadConfig('ldap-auth');
+        error_log("loaded ldap-auth config");
+	Yii::app()->loadHelper('ldap');
+	error_log("loaded configs...");
+        $ldap_query = Yii::app()->getConfig('ldap_query');
+        $ldap_server = Yii::app()->getConfig('ldap_server');
+        $ldap_server_id = 0;
+
+        $basedn = $ldap_query['userbase'];
+        $attrlist = $ldap_query['attrlist'];
+        $filter =$ldap_query['customFilterPrefix'].$username.$ldap_query['customFilterSuffix'];
+        $binddn = $ldap_query['customDnPrefix'].$username.$ldap_query['customDnSuffix'];
+        error_log("basedn: ".$basedn." attr: ".$attrlist." filter: ".$filter." binddn: ".$binddn);
+        $ds = ldap_getCnx($ldap_server_id);
+        if ($ds)
+        {
+	    //check the password by attempting to use it to bind to the ldap server
+            $resbind = ldap_bindCustom($ds, $binddn, $password, $ldap_server_id);                       
+            if ($resbind)
+            {
+                $sr = ldap_search($ds, $basedn,$filter, $attrlist);
+                $ldapinfo = ldap_get_entries($ds, $sr);
+                if ($ldapinfo['count'] > 1)
+                {
+                    //if user is null, add them to DB and proceed
+                    $userid = User::model()->findByAttributes(array('users_name' => $username));
+                    if($userid === null) {
+  
+                        $new_full_name = "";
+                        foreach ($ldap_query["fullname"] as $name) {
+                            $new_full_name = $new_full_name.$ldapinfo[0][$name][0]." ";
+                        }
+                        $new_full_name = trim($new_full_name);
+                        $new_email = $ldapinfo[0][$ldap_query["email"]][0];
+                        $parent_user = User::model()->findByAttributes(array('users_name' => $ldap_query["parent"]));
+                        $newuser = User::model()->insertUser($username, $password, $new_full_name,$parent_user,$new_email);
+                    }
+                        
+                    //else user is found in local db, password is right, update local password if necessary.
+                    else {
+                        User::model()->updatePassword($userid, hash('sha256',$password)); 
+                    }
+                }
+            }
+             
+        }           
+    }
+
 
     /**
     * Returns the current user's ID

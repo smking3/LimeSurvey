@@ -76,6 +76,18 @@ function ldap_bindCnx($ds, $server_id = null) {
 }
 
 
+function ldap_bindCustom($ds, $binddn, $password, $server_id = null) {
+
+    if ( !$ds ) {
+        return 0;
+    }
+
+    $resbind=@ldap_bind($ds,
+    $binddn,
+    $password);
+    return $resbind;
+}
+
 function ldap_readattr($attr) {
 
     if (is_array($attr)) {
